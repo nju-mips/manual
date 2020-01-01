@@ -1,0 +1,15 @@
+[submodule "projs/insttest"]
+	path = projs/insttest
+	url = git@github.com:wierton/insttest.git
+[submodule "projs/nemu-mips32"]
+	path = projs/nemu-mips32
+	url = git@github.com:wierton/nemu-mips32
+[submodule "projs/nexus-am"]
+	path = projs/nexus-am
+	url = git@github.com:wierton/nexus-am
+[submodule "projs/uboot"]
+	path = projs/uboot
+	url = git@github.com:wierton/uboot
+[submodule "projs/tlbtest"]
+	path = projs/tlbtest
+	url = git@github.com:wierton/mips32-tlbtest.git
