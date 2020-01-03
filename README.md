@@ -1,4 +1,4 @@
-# nju-mips manual
+# noop/nju-mips manual
 
 # 基本工具链的使用
 * [git](docs/git.md)
@@ -9,6 +9,7 @@
 * [xpr构建项目]()
 * [tcl](docs/tcl.md)
 * [ila](docs/ila.md)
+* [minicom]()
 
 # MIPS说明
 * [手册]()
@@ -23,5 +24,5 @@
 
 # 后续提升
 * [基于AM编写操作系统]()
-* [运行linux]()
+* [运行linux](docs/run-linux.md)
 * [运行debian]()
