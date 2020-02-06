@@ -1,0 +1,255 @@
+%!TEX program = xelatex
+% 完整编译: xelatex -> bibtex -> xelatex -> xelatex
+\documentclass[lang=cn,11pt,a4paper]{elegantpaper}
+
+\usepackage{calc}
+\usepackage{times}
+\usepackage{float}
+
+\usepackage{pdfpages}
+
+\usepackage{amssymb} % \Box
+%\usepackage{algorithm}  
+%\usepackage{algorithmicx}  
+\usepackage{algpseudocode}
+\usepackage{amsmath}
+\usepackage[linesnumbered,ruled,lined]{algorithm2e}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{color}
+\usepackage{colortbl}
+\usepackage{longtable}
+\SetArgSty{textnormal} % non-italics in if-clause of algorithm
+
+\usepackage{hyperref}
+\usepackage{titlesec}
+\titleformat{\section}{\centering\Huge\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}{\LARGE\bfseries}{\thesubsection}{1em}{}
+
+\title{计算机系统综合实验手册}
+\author{欧先飞 \\ ouxianfei@smail.nju.edu.cn}
+%\institute{\href{https://elegantlatex.org/}{Elegant\LaTeX{} 项目组}}
+
+%\newcommand{\blankbox}{\boxed{\textcolor[rgb]{1,1,1}{*}}}
+\newcommand{\blankbox}{\Large{\qedsymbol}}
+
+%\version{0.08}
+%\date{\zhtoday}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\newpage
+
+\section{基本工具链}
+
+\subsection{Makefile}
+
+\subsubsection{规则依赖}
+
+一个简单的例子：
+\begin{lstlisting}
+a.o: a.c
+  g++ a.c -o a.o
+
+b.o: b.c
+  g++ b.c -o b.o
+
+binary: a.o b.o
+  echo + binary
+\end{lstlisting}
+
+将上述内容写入到你当前目录的Makefile文件中，并保证\lstinline!a.c!和\lstinline!b.c!文件存在，然后在命令行里敲\lstinline!make binary!，这条语句的意思是制造\lstinline!binary!这个目标，make会读特定名称的文件来获取制造这个目标的规则(Makefile是make内置的一个特定名称)。make读取你的Makefile后会发现binary依赖于\lstinline!a.o!和\lstinline!b.o!，并进而计算得出\lstinline!a.o!依赖于\lstinline!a.c!，\lstinline!b.o!依赖于\lstinline!b.c!，最后按照你给定的生成规则\lstinline!g++ a.c -o a.o!和\lstinline!g++ b.c -o b.o!去生成相应的\lstinline!a.o!和\lstinline!b.o!。
+
+敲完\lstinline!make binary!之后，你binary并没有生成，因为你还没有为binary添加生成规则，所以如果你再敲一遍\lstinline!make binary!，相应的\lstinline!echo + binary!语句会被再执行一遍。
+
+我们稍微改一下，让他变成下面这样：
+\begin{lstlisting}
+a.o: a.c
+  g++ a.c -o a.o
+
+b.o: b.c
+  g++ b.c -o b.o
+
+binary: a.o b.o
+  cat a.o b.o > binary
+\end{lstlisting}
+
+这个时候如果你在敲\lstinline!make binary!，生成规则会将\lstinline!a.o!与\lstinline!b.o!拼接成binary文件，由于binary文件是最新生成的，它的时间戳大于\lstinline!a.o!和\lstinline!b.o!的时间戳，所以再下一次你敲\lstinline!make binary!的时候，make会输出\lstinline!'binary' is up to date!。
+
+一般而言，我们并不希望我们所生成的中间文件和源码文件共用一个目录，假设我们希望将目录结构调整成这样：
+\begin{lstlisting}
++---src
+|   +--- a.c
+|   +--- b.c
+|
++---build
+    +--- a.o
+    +--- b.o
+    +--- binary
+\end{lstlisting}
+
+为了达成这个目的，我们需要对Makefile做一些微调：
+\begin{lstlisting}
+build/a.o: src/a.c
+  mkdir -p build
+  g++ src/a.c -o build/a.o
+
+build/b.o: b.c
+  mkdir -p build
+  g++ src/b.c -o build/b.o
+
+build/binary: build/a.o build/b.o
+  cat build/a.o build/b.o > build/binary
+\end{lstlisting}
+
+相应的，基于这个Makefile来生成binary，我们需要执行\lstinline!make build/binary!，这条命令会按照你的规则去生成\lstinline!build/a.o!和\lstinline!build/b.o!两个文件，然后拼接成\lstinline!build/binary!这个文件。
+
+这个时候，你可能发现，make的时候连目录一起写进去太撒刁了，所以这个Makefile可以进一步改进：
+
+\begin{lstlisting}
+.PHONY: binary
+
+binary: build/binary
+
+build/a.o: src/a.c
+  mkdir -p build
+  g++ src/a.c -o build/a.o
+
+build/b.o: b.c
+  mkdir -p build
+  g++ src/b.c -o build/b.o
+
+build/binary: build/a.o build/b.o
+  cat build/a.o build/b.o > build/binary
+\end{lstlisting}
+
+\lstinline!.PHONY!的作用是定义一个伪目标，什么是伪目标，直观的讲就是，这个目标在磁盘上不存在。之前Makefile里面的\lstinline!a.o!、\lstinline!build/binary!、\lstinline!build/a.o!这些目标在磁盘上是会对应到一个实际存在的文件的，而伪目标不需要满足这个要求，同时相应的，make也不会去检查伪目标的时间戳，而是直接调用他的生成规则，比如：
+
+\begin{lstlisting}
+
+.PHONY: hello
+
+hello:
+  touch hello
+  echo hello world
+\end{lstlisting}
+
+在这个makefile中，无论你敲几次\lstinline!make hello!，\lstinline!touch hello!和\lstinline!echo hello world!这两条生成规则都会被执行。
+
+\subsubsection{通用匹配\%和生成规则简化}
+
+在上文提到的Makefile中，你会发现在编写a.o和b.o的生成规则的时候，你需要把\lstinline!build/!和\lstinline!a.o!这样的多余的东西再写一遍，这个信息明明已经包含在依赖目标和生成目标里了，为了简化规则的编写，makefile定义了一系列的简写符号，用这些符号我们可以将Makefile简化成：
+
+\begin{lstlisting}
+.PHONY: binary
+
+binary: build/binary
+
+build/a.o: src/a.c
+  mkdir -p $(@D)
+  g++ $^ -o $@
+
+build/b.o: b.c
+  mkdir -p $(@D)
+  g++ $^ -o $@
+
+build/binary: build/a.o build/b.o
+  cat $^ > $@
+\end{lstlisting}
+
+其中\lstinline!$^!出现在生成规则中表示所有被依赖的目标(示例中\lstinline!$^!会被替换成\lstinline!build/a.o build/b.o!)，\lstinline!$@!表示生成的目标(示例中上下两条生成规则里的\lstinline!$@!分别会被替换成\lstinline!build/a.o!和\lstinline!build/b.o!)，\lstinline!$(@D)!则是表示生成目标所在的目录，也就是\lstinline!build/!，所以上面的Makefile其实与之前的Makefile完全等价。
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{|c|c|}
+\hline
+符号&含义 \\\hline
+\lstinline|$(@D)| & 当前规则目标所在目录 \\\hline
+\lstinline|$@| & 当前规则目标 \\\hline
+\lstinline|$<| & 当前规则依赖项的第一个 \\\hline
+\lstinline|$^| & 当前规则的所有依赖项 \\\hline
+\end{tabular}
+\end{table}
+
+到这里，你会发现一件更撒刁的事，那就是\lstinline!mkdir -p $(@D)!和\lstinline!g++ $^ -o $@!这两条语句你在两个目标的生成规则中写了两遍，为了解决这样的问题，Makefile又提供了通配符机制，利用通配符，我们可以将Makefile进一步改写成：
+
+\begin{lstlisting}
+.PHONY: binary
+
+binary: build/binary
+
+build/%.o: src/%.c
+  mkdir -p $(@D)
+  g++ $^ -o $@
+
+build/binary: build/a.o build/b.o
+  cat $^ > $@
+\end{lstlisting}
+
+在这个Makefile上，如果我们敲\lstinline!make binary!，make会去查找\lstinline!build/binary!所依赖的\lstinline!build/a.o!和\lstinline!build/b.o!的生成规则，当然make是找不到的，因为我们并没有明确的写这样的规则。但是make会进一步发现，它只要把\lstinline!build/%.o!中的\lstinline!%!这个字符替换成\lstinline!a!，他就能匹配上\lstinline!build/%.o: src/%.c!这条规则，于是它就把这条规则里面所有的\lstinline!%!都替换成了\lstinline!a!，便得到了\lstinline!build/a.o!的生成规则，同理它也能获得\lstinline!build/b.o!的生成规则。
+
+\subsubsection{变量和函数的使用}
+
+在上面的Makefile里面，我们还有着这样一个问题，就是如果我们不知道src下面究竟有多少\lstinline!.c!文件，但是我们依旧希望Makefile能工作应该怎么办。举个简单的场景，你的项目正在如火如荼的发展中，每天都可能添加若干个\lstinline!.c!文件或重命名若干个\lstinline!.c!文件，如果你每次都要手动更新Makefile，未免太过撒刁了，为了解决这个问题，Makefile提供了函数机制。
+
+回顾我们的需求，我们其实需要的是make能自动找到src下所有的.c文件，并将其重命名为build下的.o文件，最后放到\lstinline!build/binary!的依赖目标中去：
+
+\begin{lstlisting}
+.PHONY: binary
+
+binary: build/binary
+
+build/%.o: src/%.c
+  mkdir -p $(@D)
+  g++ $^ -o $@
+
+build/binary: $(patsubst src/%.c,build/%.o,$(shell find src/ -name "*.c"))
+  cat $^ > $@
+\end{lstlisting}
+
+新的Makefile中\lstinline!build/binary!所依赖的目标已经被替换成了\lstinline!$(patsubst src/%.c,build/%.o,$(shell find src/ -name "\*.c"))!，我们分开来讲这条语句，首先是\lstinline!$(shell find src/ -name "\*.c")!，这条语句会调用你终端中的\lstinline!find!命令，查找\lstinline!src!目录下所有的\lstinline!.c!文件，并将其替换成查找的结果，也就是说这条语句执行完毕之后原语句会变成\lstinline!$(patsubst src/%.c,build/%.o,src/a.c src/b.c)!，\lstinline!patsubst!是make的一个内置函数，它的作用是根据你指定的初始特征和结果特征，对你的输入进入转化，对应到这条语句，你给它的初始特征是\lstinline!src/%.c!，结果特征是\lstinline!build/%.o!，输入是\lstinline!src/a.c src/b.c!，对于输入中的每一项，如\lstinline!src/a.c!，\lstinline!patsubst!函数会发现将\lstinline!%!换成\lstinline!a!就能匹配上，然后他讲结果特征中的\lstinline!%!也换成\lstinline!a!，并将结果替换掉\lstinline!src/a.c!，也就是说，\lstinline!src/a.c!会被替换成\lstinline!build/a.o!，同理\lstinline!src/b.c!也会被替换成\lstinline!build/b.o!。
+
+上述Makefile看着非常蛋疼，因为我们写了一个超长的语句，有没有一种机制，像编程语言一样，通过定义一些中间变量来拆分超长表达式呢？答案当然是有的，所以上面的Makefile又可以改成下面这样：
+
+\begin{lstlisting}
+.PHONY: binary
+
+SRC_DIR := src/
+SRCS    := $(shell find $(SRC_DIR) -name "*.o")
+OBJ_DIR := build/
+OBJS    := $(patsubst src/%.c,build/%.o,$(SRCS))
+
+binary: $(OBJ_DIR)binary
+
+$(OBJ_DIR)%.o: $(SRC_DIR)%.c
+  mkdir -p $(@D)
+  g++ $^ -o $@
+
+$(OBJ_DIR)binary: $(OBJS)
+  cat $^ > $@
+\end{lstlisting}
+
+上面的赋值使用了\lstinline!:=!，你暂时不需要知道为什么是\lstinline!:=!而不是\lstinline!=!，如果你真的想了解，在docs目录下的Makefile.pdf可以给你答案，同时如果哪天你需要什么其它的功能，你也可以通过查阅\lstinline!Makefile.pdf!来看看是否有相应的函数。
+
+\subsubsection{宏的使用与自动规则生成}
+
+假如你想把你的Makefile包装成一个功能库，其他人只要include你的Makefile就能获得上述所有的功能，那么你需要怎么做呢？一个简单的答案就是宏。
+
+
+\section{MIPS相关}
+
+\section{相关项目说明}
+
+\section{运行及移植linux}
+
+\newpage
+
+\nocite{*}
+%\bibliographystyle{unsrt}
+\bibliography{reference}
+
+\end{document}
