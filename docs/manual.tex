@@ -818,6 +818,29 @@ system ila用来抓取AXI4的信号，相较于用\lstinline!(*mark_debug = "tru
   \end{itemize}
 \end{itemize}
 
+\subsection{外设地址段}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|c|c|}
+\hline
+ 地址段 & 外设 \\\hline
+\lstinline!0x80000000 - 0x8fffffff! & DDR (cached) \\\hline
+\lstinline!0xa0000000 - 0xafffffff! & DDR (uncached) \\\hline
+\lstinline!0xb0000000 - 0xb0000fff! & nemu GPIO trap \\\hline
+\lstinline!0xb0002000 - 0xb0002fff! & nemu rtc \\\hline
+\lstinline!0xb0003000 - 0xb0003fff! & nemu screen config \\\hline
+\lstinline!0xb0400000 - 0xb04fffff! & nemu video memory \\\hline
+\lstinline!0xbfc00000 - 0xbfcfffff! & SRAM(用于存放引导程序) \\\hline
+\lstinline!0xbfe50000 - 0xbfe50fff! & xilinx uartlite serial \\\hline
+\lstinline!0xbfe80000 - 0xbfe80fff! & xilinx spi flash \\\hline
+\lstinline!0xbfe94000 - 0xbfe94fff! & nemu Keyboard \\\hline
+\lstinline!0xbfe95000 - 0xbfe95fff! & npc PerfCounter \\\hline
+\lstinline!0xbfe96000 - 0xbfe95fff! & PS/2 keyboard \\\hline
+\lstinline!0xbff00000 - 0xbff0ffff! & xilinx emaclite \\\hline
+\end{tabular}
+\end{table}
+
 \subsection{CLZ的递归高效实现}
 \subsubsection{函数版本}
 
