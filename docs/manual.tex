@@ -138,7 +138,7 @@ git reset --hard 352cdeca2caa8a309d2 # 回退到352cdeca2caa8a309d2，同时回�
 git reset --soft 352cdeca2caa8a309d2 # 只回退git记录，不回退文件内容
 \end{lstlisting}
 
-\subsection{Makefile}\label{Makefile}
+\subsection{makefile}\label{Makefile}
 
 写在前面，对于过于复杂的Makefile，可以使用\lstinline!make -nB target!来查看生成\lstinline!target!时会执行到的指令，这对于了解一个Makefile究竟干了什么非常有用。除此以外Makefile里面可以通过\lstinline!$(info "xxx")!来打印字符串，这个对于调试Makefile非常有用。
 
@@ -428,7 +428,7 @@ int main(int argc, char **argv) {
 }
 \end{lstlisting}
 
-\subsection{Chisel}
+\subsection{chisel}
 chisel是由伯克利开发的一门硬件构建语言，嵌入在scala编程语言中。相比verilog，chisel有抽象的数据类型和接口，层次化+面向对象+功能化构造，可以很简单地实现工程的高度参数化。可以编译生成出verilog语言，相当于软件设计语言中的高级语言。
 
 \subsubsection{chisel安装}
@@ -532,7 +532,7 @@ sbt $ run MainDriver -tn [顶层模块] -td [源文件目录] --output-file [目
 
 chisel api查询: \url{https://www.chisel-lang.org/api/latest/index.html}
 
-\subsection{minicom的使用方法}
+\subsection{minicom的使用方法}\label{minicom}
 
 minicom是一款终端串口连接软件，并且minicom自己有一套脚本语法，便于在不定延迟的串口上传送指令
 
@@ -681,7 +681,7 @@ FAIL:
   \item mul, mult, multu, div, divu, mfhi, mflo, mthi, mtlo
   \item 建议：hi和lo寄存器随通用寄存器一起进行转发，如果单独放在MDU里面，后续高级流水线的时候需要两套处理方案
   \end{itemize}
-\item PRU: 特权指令(该单元又名CP0)，重点看\href{../manuals/MIPS_Vol3.pdf}{[3]}
+\item PRU: 特权指令(该单元又名CP0)，重点看\href{run:../manuals/MIPS_Vol3.pdf}{[3]}
   \begin{itemize}
   \item syscall: 发起系统调用的指令
   \item eret: 系统调用执行完从内核态返回用户态的指令
@@ -700,7 +700,7 @@ FAIL:
 \item CP0: 0号协处理器
   \begin{itemize}
   \item 维护页目录，页目录缺失由操作系统回填，硬件抛异常就行了
-  \item 维护cp0寄存器，以优先级排序：
+  \item 维护cp0寄存器，下述以建议的实现顺序排序：
     \begin{itemize}
     \item status, cause, epc (实现系统调用必须)
 	\item badvaddr (实现异常必须，用于指示最后一个出错的访存地址)
@@ -717,6 +717,10 @@ FAIL:
   \begin{itemize}
   \item 寻址: (待续)
   \end{itemize}
+\item CP1：1号协处理器
+  \begin{itemize}
+  \item 关于浮点数的，可以使用IP核，需要实现的指令数不多，可在后续提升时实现
+  \end{itemize}
 \end{itemize}
 
 \subsubsection{CPU uncore}
@@ -730,11 +734,21 @@ FAIL:
 \item Uartlite (用axi4-uartlite的IP核就行，无需自行实现)
   \begin{itemize}
   \item 最简单的串口协议
-  \item 连接串口的简单[教程](docs/minicom.md)
+  \item 连接串口的简单教程\ref{minicom}
   \end{itemize}
 \item Emaclite (不需要深入理解、用就可以了)
   \begin{itemize}
-  \item 最简单的网口协议
+  \item 最简单的网口协议，vivado里面有IP核，u-boot和linux里面均有驱动
+  \end{itemize}
+\item SPI flash
+  \begin{itemize}
+  \item 注意SPI仅为通信协议，实际想要读写flash，需通过SPI的IP核将命令发送给flash芯片，关于flash的命令，这里不推荐任何手册。其状态机过于复杂，这里不建议花太多时间
+  \item 如果想要使用flash，请先将linux跑起来，linux里有驱动，无需再自己实现
+  \end{itemize}
+\item PS/2
+  \begin{itemize}
+  \item 注意，PS/2也仅是通信协议，用于与键盘和鼠标交互，实际读取键盘和鼠标还需基于PS/2发送命令
+  \item PS/2在vivado里面有IP核，在linux里面有驱动，如果可以跑通linux，那么使用PS/2是比较容易的
   \end{itemize}
 \item VGA (用往届的就可以了)
   \begin{itemize}
@@ -747,7 +761,7 @@ FAIL:
   \end{itemize}
 \end{itemize}
 
-\subsubsection{CPU调试常用的工具链}
+\subsubsection{SOC构建与调试调试常用的工具链}
 \begin{itemize}
 \item Makefile \ref{Makefile}
   \begin{itemize}
@@ -813,12 +827,11 @@ object CountLeadingZeros32 {
 \begin{lstlisting}
 class CountLeadingZeros32 extends Module {
   val io = IO(new Bundle {
-	val in = Input(UInt(32.W))
-	val out = Input(UInt(32.W))
+    val in = Input(UInt(32.W))
+    val out = Input(UInt(32.W))
   })
 
   val tmp = Wire(Vec(5, Bool()))
-
   tmp(4) := io.in(31, 16) === 0.U(16.W)
 
   val val16 = Mux(tmp(4), io.in(15, 0), io.in(31, 16))
@@ -838,12 +851,309 @@ class CountLeadingZeros32 extends Module {
 
 \section{相关项目说明}
 
+写在前面，所有的相关项目只做概述性说明。由于项目本身也在经常重构，一些整理的内容到后期可能就不对了，同时对于计算机系统综合实验的同学而言，看代码也是一个必由之路。
+
+\subsection{测试相关}
+
+\subsubsection{insttest}
+这个项目是从龙芯的测试集和清华的测试集里扒出来的，用于进行单指令测试。需要注意的一点是，一旦开始流水线设计，单指令测试只能验证最基本的正确性，由于流水线的指令间并行性，不同的指令流可能会导致不同的状态机切换，因而造成单指令测试所无法触发的bug。
+\subsubsection{tlbtest}
+这个是从龙芯的测试集中扒出来的，用于进行tlb的测试，需要注意的是，这个测试并不完备，完备的测试还是需要运行linux这样的workload。
+\subsubsection{nexus-am/tests/cputest}
+基于AM的一些简单测试，继承自PA，可以测试一些简单的workload
+\subsubsection{nexus-am/apps/coremark}
+基于AM的评分程序，workload中等。
+\subsubsection{nexus-am/apps/microbench}
+基于AM的大型workload，很多流水线bug可以在这个测试下暴露出来，需要予以重视。这个测试由于运行时间过长，大部分时候可能只能在板上测试，届时可能需要大量使用ILA。一般普通流水线的microbench跑分可以到达200-300分，这个成绩大概是决赛的垫底成绩，如果想进龙芯杯决赛，还需要多多优化。
+
+\subsection{运行linux相关}
+
+运行linux相关的几个项目都使用了Kconfig进行配置，在nju-mips的几个仓库里面，均已经准备好了针对noop的配置文件，在编译前通过\lstinline!make noop_defconfig!即可初始化配置，除此以外还可以通过\lstinline!make menuconfig!来进行手动配置。后期可以肯定还需要对linux进行裁剪适配，手动配置应是必须掌握的技能之一。
+
+除了Kconfig，u-boot和linux还使用dts文件来描述soc所能访问的外设。dts文件的语法可以百度，如果想了解某个外设的dts文件怎么写，可以查询xilinx的官网。比如加一个emaclite硬件，可以访问\url{https://xilinx-wiki.atlassian.net/wiki/spaces/A/pages/18842124/U-Boot+Ethernet+Driver}查看具体流程
+
+\subsubsection{u-boot}
+
+u-boot是一个引导程序，一般建议直接烧录在SOC的sram中，用于引导程序。\textcolor{red}{其正确运行依赖于cp0里面的cache指令}。u-boot中包含丰富的驱动，结合vivado丰富的IP核，使得我们可以简单组合一下uncore和配置一下u-boot就能让干成很多事情。比如从网口加载内核并执行。
+
+u-boot的(重要)目录结构如下：
+\begin{lstlisting}
+u-boot
++-- board/                     # 初始化板子的代码
++-- drivers/                   # 各种驱动代码
+|   +-- serial/
+|   |   +-- serial_xuartlite.c # xilinx uartlite驱动，有大小端bug，nju-mips上已修复
+|   +-- spi/
+|   |   +-- xilinx_spi.c       # spi驱动，与flash相关
+|   +-- net/
+|       +-- xilinx_emaclite.c  # xilinx的emaclite驱动
++-- arch/
+|   +-- mips/
+|       +-- mach-noop/         # 移植到noop所需目录
+|       +-- dts/
+|           +-- noop.dts       # 描述noop soc外设的文件
++-- configs/
+    +-- noop_defconfig         # noop的配置文件
+\end{lstlisting}
+
+\subsubsection{linux}
+
+这个项目是linux的内核，无需多言。\textcolor{red}{请务必注意的一点是，在mips里面异常和异常号不是一一对应的，同一个异常号对应的异常可能实际走的异常入口并不一样，这一点手册没有很好的说明}，除此以外如果linux运行不起来请着重检查cp0和tlb，尤其是tlb。
+
+linux的重要目录结构如下：
+\begin{lstlisting}
+u-boot
++-- drivers/                      # 各种驱动代码
+|   +-- tty/
+|   |   +-- serial/
+|   |       +-- uartlite.c        # uartlite驱动，mainline有bug，已修复
+|   +-- spi/
+|   |   +-- spi-xilinx.c          # spi驱动，与flash相关
+|   +-- net/
+|       +-- etherlite/
+|           +-- xilinx/
+|               +-- xilinx_emaclite.c
+|               +-- xilinx_axinet.c
++-- arch/
+    +-- mips/
+        +-- noop/                 # 移植到noop所需目录
+        +-- boot/
+        |   +-- dts/
+        |       +-- noop/
+        |           +-- noop.dts  # 描述noop soc外设的文件
+        +-- configs/
+            +-- noop_defconfig    # noop的配置文件
+\end{lstlisting}
+
+关于如何驱动外设，这里需要额外说明一下。假设现在需要驱动uartlite这个外设，首先需要运行\lstinline$make menuconfig$将这个外设的驱动开启，然后需要进入noop.dts文件中，添加对uartlite这个外设的描述，最后在启动时也就有这个外设了。那么这个外设怎么访问呢？还是以uartlite为例，我们打开其驱动文件uartlite.c，会发现有这样几行：
+\begin{lstlisting}[language=c]
+#define ULITE_NAME		"ttyUL"
+#define ULITE_MAJOR		204
+#define ULITE_MINOR		187
+
+static struct uart_driver ulite_uart_driver = {
+	.owner		= THIS_MODULE,
+	.driver_name	= "uartlite",
+	.dev_name	= ULITE_NAME,
+	.major		= ULITE_MAJOR,
+	.minor		= ULITE_MINOR,
+	.nr		= ULITE_NR_UARTS,
+#ifdef CONFIG_SERIAL_UARTLITE_CONSOLE
+	.cons		= &ulite_console,
+#endif
+};
+\end{lstlisting}
+
+这几行意味这，uartlite这个外设被检测到以后，会在/dev下生成/dev/ttyUL这个设备文件，其对应的设备号是\lstinline!204, 187!，如果有多个外设，则他们从0开始排序，如/dev/ttyUL0、/dev/ttyUL1、...。
+
+有时候你会在百度的时候发现有些linux启动的时候会有参数\lstinline!root=/dev/mmcblock!，这就意味这有一个外设名为mmcblock被注册了，并且对应的硬件在dts文件里面被描述了，在这两个前提下，linux可以找到这个块设备，并将其设为根文件系统。
+
+\subsubsection{buildroot}
+
+linux的运行依赖于一个根文件系统，这个根文件系统中存放这各种各样的配置文件和程序(和我们的系统一样)。linux启动时会加载根文件系统里的/bin/init程序作为1号进程。buildroot的作用是帮你生成这样一个文件系统。
+
+buildroot会在make之后去网上下载源代码、编译各种程序、最后构建根文件系统。下载好的源代码会放在dl目录下，编译的中间结果会放在output/build目录下，生成的文件系统镜像的初始目录会在output/target下，生成的最终镜像文件会在output/images目录下。
+
+一个标准的启动流程是，/bin/init被启动后去加载inittab，其文件大概如下：
+\begin{lstlisting}
+# Startup the system
+::sysinit:/bin/mount -t proc proc /proc
+::sysinit:/bin/mount -o remount,rw /
+::sysinit:/bin/mkdir -p /dev/pts /dev/shm
+::sysinit:/bin/mount -a
+::sysinit:/sbin/swapon -a
+null::sysinit:/bin/ln -sf /proc/self/fd /dev/fd
+null::sysinit:/bin/ln -sf /proc/self/fd/0 /dev/stdin
+null::sysinit:/bin/ln -sf /proc/self/fd/1 /dev/stdout
+null::sysinit:/bin/ln -sf /proc/self/fd/2 /dev/stderr
+::sysinit:/bin/hostname -F /etc/hostname
+# now run any rc scripts
+# ttyUL0::askfirst:/bin/login
+::sysinit:/etc/init.d/rcS
+
+# Put a getty on the serial port
+ttyUL0::respawn:/sbin/getty -L ttyUL0 115200 vt100
+
+# Stuff to do for the 3-finger salute
+#::ctrlaltdel:/sbin/reboot
+
+# Stuff to do before rebooting
+::shutdown:/etc/init.d/rcK
+::shutdown:/sbin/swapoff -a
+::shutdown:/bin/umount -a -r
+\end{lstlisting}
+
+需要额外关注的是\lstinline!ttyUL0::respawn:/sbin/getty -L ttyUL0 115200 vt100!这一行，意思是将中断绑定到\lstinline!ttyUL0!这个串口外设上，设置波特率为\lstinline!115200!。\lstinline!respawn!和\lstinline!/sbin/getty!的意思是，init结束后会启动\lstinline!/sbin/getty!这个程序作为shell，并且如果退出\lstinline!/sbin/getty!会重新启动这个程序。\lstinline!/sbin/getty!是一个账户管理程序，他会在启动时要求输入账户和密码(均为root)，然后再启动sh作为shell。
+
+\subsection{nemu-mips32}
+
+这个项目是一个mips32的模拟器，目前已成功运行linux，具备相对齐全的CP0和TLB，其整体的大致目录结构如下：
+
+\begin{lstlisting}
+nemu-mips32
++-- Kconfig      # 用于配置nemu-mips32
++-- Makefile
++-- configs/     # 存放已经保存好的各种配置
+|   +-- noop_defconfig
+|   +-- mips32r1_defconfig
++-- src/
+|   +-- main.c
+|   +-- cpu/     # 模拟mips32的核心代码
+|   +-- dev/     # 模拟外设的核心代码
+|   +-- monitor/ # 用于解析命令行参数和与gdb交互
+|   +-- utils/   # 项目所依赖的一些小功能函数
++-- kconfig/     # Kconfig对应的配置工具源码
+\end{lstlisting}
+
+需要注意，由于所涉及的配置繁多，nemu-mips32采用Kconfig对整个项目进行配置，包括各种外设的开闭、各种优化机制的开闭、各种调试机制的开闭、一些功能的开闭等。运行\lstinline!make menuconfig!可以对项目进行配置，配置完毕退出会在当前目录下生成\lstinline!.config!文件，并在include/下生成generated/文件夹用于存放配置的头文件。
+
+如果需要阅读nemu-mips32的代码，请集中精力在src/cpu/和src/dev/这两个目录下，其它代码可以视为干扰项，整个项目的入口在src/目录下的main.c里面。
+
 \section{运行及移植linux}
+
+写在前面，linux目前以基本移植完毕，但如果想在决赛中取得好名次，比如想运行debian，建议自己摸索一遍linux的移植过程。
+
+\subsection{运行linux}
+
+首先clone项目
+\begin{lstlisting}
+git clone git@github.com:nju-mips/buildroot
+git clone git@github.com:nju-mips/u-boot
+git clone git@github.com:nju-mips/linux
+\end{lstlisting}
+
+其次编译各项目，依序
+\begin{lstlisting}
+cd buildroot
+make noop_defconfig
+make # buildroot编译特别耗时，请不到万不得已不要clean这个项目
+
+cd u-boot
+ARCH=mips CROSS_COMPILE=mips-linux-gnu make noop_defconfig
+ARCH=mips CROSS_COMPILE=mips-linux-gnu make -j8
+
+cd linux
+ARCH=mips CROSS_COMPILE=mips-linux-gnu make noop_defconfig
+ARCH=mips CROSS_COMPILE=mips-linux-gnu make -j8
+\end{lstlisting}
+
+接着是编译nemu-mips32
+\begin{lstlisting}
+cd nemu-mips32
+make mips32r1_defconfig
+make
+\end{lstlisting}
+
+最后是运行：
+\begin{lstlisting}[language=bash]
+nemu $ sudo build/nemu -b -e ../u-boot/u-boot --block-data ddr:0x4000000:../linux/vmlinux
+<debug_uart>
+
+U-Boot 2020.01-rc5-ga5281d02 (Feb 06 2020 - 22:32:13 +0800)
+
+Model: uart0
+DRAM:  128 MiB
+In:    serial@bfe50000
+Out:   serial@bfe50000
+Err:   serial@bfe50000
+Net:   EMACLITE: bff00000, phyaddr 1, 1/1
+
+Warning: ethernet@bff00000 using MAC address from ROM
+eth0: ethernet@bff00000
+noop # bootelf -p 0x84000000
+## Starting application at 0x803de6a0 ...
+[    0.000000] Linux version 5.3.0+ (wierton@wierton-ThinkPad-T480s) (gcc version 7.4.0 (Ubuntu 7.4.0-1ubuntu1~18.04.1)) #1 Thu Feb 6 22:32:34 CST 2020
+[    0.000000] printk: bootconsole [early0] enabled
+[    0.000000] CPU0 revision is: 00018000 (MIPS 4Kc)
+[    0.000000] MIPS: machine is uart0
+[    0.000000] Determined physical RAM map:
+[    0.000000]  memory: 08000000 @ 00000000 (usable)
+[    0.000000] Initrd not found or empty - disabling initrd
+[    0.000000] Primary instruction cache 16kB, VIPT, 4-way, linesize 16 bytes.
+[    0.000000] Primary data cache 16kB, 4-way, VIPT, no aliases, linesize 16 bytes
+[    0.000000] Zone ranges:
+[    0.000000]   Normal   [mem 0x0000000000000000-0x0000000007ffffff]
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000000000000-0x0000000007ffffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000000000000-0x0000000007ffffff]
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 32512
+[    0.000000] Kernel command line: cca=0 console=ttyUL0,115200n8 rootfstype=ext4 root=/dev/mtdblock0
+[    0.000000] Dentry cache hash table entries: 16384 (order: 4, 65536 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 8192 (order: 3, 32768 bytes, linear)
+8001ba50: mtc0 $0 , $6, 0
+[    0.000000] mem auto-init: stack:off, heap alloc:off, heap free:off
+[    0.000000] Memory: 122540K/131072K available (3987K kernel code, 154K rwdata, 748K rodata, 2144K init, 325K bss, 8532K reserved, 0K cma-reserved)
+[    0.000000] SLUB: HWalign=32, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+[    0.000000] NR_IRQS: 128
+[    0.000000] random: get_random_bytes called from start_kernel+0x378/0x570 with crng_init=0
+[    0.000000] mips_hpt_frequency: 50000000 HZ
+[    0.000000] clocksource: MIPS: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 38225208935 ns
+[    0.000067] sched_clock: 32 bits at 50MHz, resolution 20ns, wraps every 42949672950ns
+[    0.001370] Console: colour dummy device 80x25
+[    0.001819] Calibrating delay loop... 76.80 BogoMIPS (lpj=38400)
+[    0.013814] pid_max: default: 32768 minimum: 301
+[    0.015292] Mount-cache hash table entries: 1024 (order: 0, 4096 bytes, linear)
+[    0.015826] Mountpoint-cache hash table entries: 1024 (order: 0, 4096 bytes, linear)
+[    0.026179] devtmpfs: initialized
+[    0.038005] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 1911260446275000 ns
+[    0.038565] futex hash table entries: 256 (order: -1, 3072 bytes, linear)
+[    0.039095] pinctrl core: initialized pinctrl subsystem
+[    0.041428] NET: Registered protocol family 16
+[    0.045203] cpuidle: using governor menu
+[    0.177085] kworker/u2:0 (15) used greatest stack depth: 6764 bytes left
+[    0.255692] pps_core: LinuxPPS API ver. 1 registered
+[    0.255947] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+[    0.261277] clocksource: Switched to clocksource MIPS
+[    0.273472] random: fast init done
+[    0.305108] kworker/u2:7 (116) used greatest stack depth: 6388 bytes left
+[    0.439554] NET: Registered protocol family 2
+[    0.444856] tcp_listen_portaddr_hash hash table entries: 512 (order: 0, 4096 bytes, linear)
+[    0.445613] TCP established hash table entries: 1024 (order: 0, 4096 bytes, linear)
+[    0.446233] TCP bind hash table entries: 1024 (order: 0, 4096 bytes, linear)
+[    0.446837] TCP: Hash tables configured (established 1024 bind 1024)
+[    0.447742] UDP hash table entries: 256 (order: 0, 4096 bytes, linear)
+[    0.448176] UDP-Lite hash table entries: 256 (order: 0, 4096 bytes, linear)
+[    0.449471] NET: Registered protocol family 1
+[    1.507595] workingset: timestamp_bits=30 max_order=15 bucket_order=0
+[    1.579196] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 252)
+[    1.579699] io scheduler kyber registered
+[    1.581658] 1fe50000.serial: ttyUL0 at MMIO 0x1fe50000 (irq = 4, base_baud = 0) is a uartlite
+[    1.582184] printk: console [ttyUL0] enabled
+[    1.582184] printk: console [ttyUL0] enabled
+[    1.582731] printk: bootconsole [early0] disabled
+[    1.582731] printk: bootconsole [early0] disabled
+[    1.677182] m25p80 spi0.0: n25q512a (65536 Kbytes)
+[    1.677605] 1 fixed-partitions partitions found on MTD device spi0.0
+[    1.677912] Creating 1 MTD partitions on "spi0.0":
+[    1.678207] 0x000000000000-0x000000800000 : "rootfs"
+[    1.692079] xilinx_spi 1fe80000.spi: at 0x1FE80000 mapped to 0x(ptrval), irq=5
+[    1.695031] libphy: Fixed MDIO Bus: probed
+[    1.695790] xilinx_emaclite 1ff00000.ethernet: Device Tree Probing
+[    1.697052] libphy: Xilinx Emaclite MDIO: probed
+[    1.738520] xilinx_emaclite 1ff00000.ethernet: MAC address is now 08:86:4c:0d:f7:09
+[    1.744147] xilinx_emaclite 1ff00000.ethernet: Xilinx EmacLite at 0x1FF00000 mapped to 0xBFF00000, irq=6
+[    1.747840] NET: Registered protocol family 17
+[    1.786954] Freeing unused kernel memory: 2144K
+[    1.787371] This architecture does not have kernel memory protection.
+[    1.787824] Run /init as init process
+/bin/sh: can't access tty; job control turned off
+/ #
+\end{lstlisting}
+
+\textcolor{red}{缺省状态下linux会初始化spi和emaclite，这可以通过修改linux/arch/mips/boot/dts/noop.dts文件，将相应的外设注释掉来避免。如果没有在nemu-mips32配置开启相应的外设，那么启动的时候会出现如下错误}：
+\begin{lstlisting}
+nemu: src/cpu/cpu.c:221: vaddr_write: Assertion `dev && dev->write' failed
+CPUAssert message: bad addr bfe80060
+
+[1]    24556 abort      sudo build/nemu -b -e ../u-boot/u-boot --block-data
+\end{lstlisting}
+\textcolor{red}{这种时候请检查bad addr对应的外设，并予以开启。除此以外还需要额外注意的一点是，emaclite的模拟需要与tun/tap进行交互，为此root权限是必须的，因此如果要开启nemu的虚拟网卡，运行的时候需要加上sudo。}
 
 \newpage
 
-\nocite{*}
+%\nocite{*}
 %\bibliographystyle{unsrt}
-\bibliography{reference}
+%\bibliography{reference}
 
 \end{document}
