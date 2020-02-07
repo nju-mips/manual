@@ -675,7 +675,7 @@ system ila用来抓取AXI4的信号，相较于用\lstinline!(*mark_debug = "tru
 \item L2 cache
 \item TLB
 \end{itemize}
-\item 乱序流水线CPU（rename table、issue queue、ls queue、rob）
+\item 乱序流水线CPU
 \item 乱序双发射CPU
 \end{itemize}
 
@@ -1197,6 +1197,14 @@ CPUAssert message: bad addr bfe80060
 \end{lstlisting}
 \textcolor{red}{这种时候请检查bad addr对应的外设，并予以开启。除此以外还需要额外注意的一点是，emaclite的模拟需要与tun/tap进行交互，为此root权限是必须的，因此如果要开启nemu的虚拟网卡，运行的时候需要加上sudo。}
 
+\section{往届core设计(2017)}
+
+详细内容可以查看\href{run:../manuals/2017-I4-NOOP.pdf}{原文档}。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{image/core-I4-2017}
+\end{figure}
 
 \section{往届core设计(2018)}
 
