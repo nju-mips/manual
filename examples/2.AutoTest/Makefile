@@ -2,9 +2,9 @@
 
 export ARCH=mips32-npc
 export CROSS_COMPILE=mips-linux-gnu-
-export AM_HOME=$(abspath $(shell pwd)/../../projs/nexus-am)
-export MIPS32_NEMU_HOME=$(abspath $(shell pwd)/../../projs/nemu-mips32)
-export INSTTEST_HOME=$(abspath $(shell pwd)/../../projs/insttest)
+export AM_HOME=$(abspath $(shell pwd)/../../../nexus-am)
+export MIPS32_NEMU_HOME=$(abspath $(shell pwd)/../../../nemu-mips32)
+export INSTTEST_HOME=$(abspath $(shell pwd)/../../../insttest)
 
 .DEFAULT_GOAL=emu
 

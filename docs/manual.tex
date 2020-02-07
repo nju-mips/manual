@@ -339,6 +339,7 @@ $(OBJ_DIR)binary: $(OBJS)
 \lstinline|$(dir ...)| & 获取目录 \\\hline
 \lstinline|$(notdir ...)| & 获取文件名 \\\hline
 \lstinline|$(realpath ...)| & 将相对路径转化为绝对路径 \\\hline
+\lstinline|$(abspath ...)| & 将相对路径转化为绝对路径 \\\hline
 \lstinline|$(foreach v, ..., ...)| & 遍历 \\\hline
 \lstinline|$(eval ...)| & 根据输入的字符串生成新规则 \\\hline
 \lstinline|$(subst , , ...)| & 子串替换 \\\hline
@@ -633,7 +634,27 @@ FAIL:
 
 \subsubsection{block design上使用system ila}
 
-后来者待续
+system ila用来抓取AXI4的信号，相较于用\lstinline!(* mark_debug = true *)!，system ila抓取的信号易读性更强，并且可以直接在block design中操作。如下图所示，首先打开block design：
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{image/system_ila_1.png}
+\end{figure}
+
+然后在block design的面板上右键add IP，搜索system ila：
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{image/system_ila_2.png}
+\end{figure}
+
+最后将system ila的clock、reset和所需要采样的信号连好：
+\begin{figure}[H]
+\centering
+\includegraphics[width=\linewidth]{image/system_ila_3.png}
+\end{figure}
+
+后续流程后前面一样，综合上板，然后便会自动进入抓信号的界面。
 
 \section{MIPS相关}
 
@@ -761,7 +782,7 @@ FAIL:
   \end{itemize}
 \end{itemize}
 
-\subsubsection{SOC构建与调试调试常用的工具链}
+\subsubsection{SOC构建与调试常用的工具链}
 \begin{itemize}
 \item Makefile \ref{Makefile}
   \begin{itemize}
