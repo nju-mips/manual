@@ -245,7 +245,7 @@
   \vskip 2em%
   \begin{center}%
   \let \footnote \thanks
-    {\LARGE\bfseries \@title \par}%
+    {\Huge\bfseries \@title \par}%
     \vskip 1.5em%
     {\large
       \lineskip .5em%

@@ -404,12 +404,10 @@ $(EMU_BIN): $(EMU_MK) $(EMU_CXXFILES)
 #include <verilated.h>
 
 int main(int argc, char **argv) {
-
-/*emu是verilator工具为我们的verilog代码生成的一个类。*/
+  /*emu是verilator工具为我们的verilog代码生成的一个类。*/
   auto dut = std::make_shared<emu>();	
 
-/*dut->reset表示的是我们的verilog代码中的一个输入信号。*/
-
+  /*dut->reset表示的是我们的verilog代码中的一个输入信号。*/
   dut->reset = 0;					
   for (int i = 0; i < 10; i++) {
     dut->io_in_valid = 1;
@@ -417,16 +415,16 @@ int main(int argc, char **argv) {
     dut->io_in_bits_a = 123;
     dut->io_in_bits_b = 456;
 
-/*以下4句代码表示了一个周期的变化，clock置0再置1，即为一个周期的变化*/
+    /*以下4句代码表示了一个周期的变化，clock置0再置1，即为一个周期的变化*/
 
-    dut->clock = 0;							
-    dut->eval();								//更新类中各个信号的信息
+    dut->clock = 0;
+    dut->eval();  // 更新类中各个信号的信息
 
     dut->clock = 1;
     dut->eval();
 
-/*打印出电路模拟的时候的某个信号的信息，可以写相关代码自动判断信号是否出错*/
-	printf ("RECEIVE: %d\n", dut->io_out_bits_c);
+    /*打印出电路模拟的时候的某个信号的信息，可以写相关代码自动判断信号是否出错*/
+    printf ("RECEIVE: %d\n", dut->io_out_bits_c);
   }
   return 0;
 }
