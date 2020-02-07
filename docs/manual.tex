@@ -841,6 +841,8 @@ system ila用来抓取AXI4的信号，相较于用\lstinline!(*mark_debug = "tru
 \end{tabular}
 \end{table}
 
+
+
 \subsection{CLZ的递归高效实现}
 \subsubsection{函数版本}
 
@@ -1194,6 +1196,213 @@ CPUAssert message: bad addr bfe80060
 [1]    24556 abort      sudo build/nemu -b -e ../u-boot/u-boot --block-data
 \end{lstlisting}
 \textcolor{red}{这种时候请检查bad addr对应的外设，并予以开启。除此以外还需要额外注意的一点是，emaclite的模拟需要与tun/tap进行交互，为此root权限是必须的，因此如果要开启nemu的虚拟网卡，运行的时候需要加上sudo。}
+
+
+\section{往届core设计(2018)}
+
+% \begin{tabular}{ll}
+% Mass of empty crucible & \SI{7.28}{\gram}\\
+% Mass of crucible and magnesium before heating & \SI{8.59}{\gram}\\
+% Mass of crucible and magnesium oxide after heating & \SI{9.46}{\gram}\\
+% Balance used & \#4\\
+% Magnesium from sample bottle & \#1
+% \end{tabular}
+\subsection{模块设计图纸}
+
+我们的cpu整体设计为6段流水线，如图\ref{fig:design_of_core}所示。由于初赛数据集较小，大部分数据集都可以直接装在l1 cache，l2 cache的设置在初赛中反而在某些数据集上起反效果，所以在最终提交的源码中，我们移除了这一组件。以及图中并未显式画出flush信号，这一信号用于分支跳转以及中断异常的冲刷。
+
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[]{image/core}\\
+	\caption{CPU的核内设计}\label{fig:design_of_core}
+\end{figure}
+
+图中所有的执行单元和写回单元(wbu)均有一条虚线连接到ISU，这条虚线的含义是bypass信号，由于实际数据写回至少会晚上3个周期，为了能够更快的获取到寄存器数据，防止ISU因为等待数据就绪而空耗时间，项目添加了如图中虚线所示的bypass信号。
+
+除了core，为了能够对接到龙芯的开发板，我们加入block design用于处理外围引线，其中block design的设计如图\ref{fig:design_of_uncore}所示：
+
+\begin{figure}[ht]
+	\centering
+	\includegraphics[width=\textwidth]{image/uncore.png}
+	\caption{CPU的核外布线}\label{fig:design_of_uncore}
+\end{figure}
+
+\subsection{core模块简介}
+
+CPU核心的架构如下图所示：
+
+首先是IFU，取指单元。负责从icache中将指令取上来。由于icache存储使用的是block ram，而block ram是在下一周期返回读结果的，所以相应的，IFU是两级流水。第一级流水将PC发给icache，第二个周期从icache中将数据取上来。
+
+接下来是IDU，译码模块。由于我们实现的是初步的乱序结构，在译码阶段，除了要完成指令的译码外，还要完成乱序需要的功能：
+寄存器重命名：
+对于源寄存器，要读取scoreboard，读取rename table
+对于目的寄存器需要分配物理寄存器（处理WAW）
+分配ROB
+分配Branch ID
+分配Load Store queue项，
+
+分支预测：
+分支预测模块包含了三样东西：
+BHT，branch history table，负责进行分支预测，我们实现的是类似gshare的分支预测器。
+BTB，branch target table，负责预测间接跳转指令的跳转地址。
+RAS，RAS负责预测函数返回的跳转地址。
+
+计分板
+scoreboard中主要有：
+32项的status，记录每个寄存器现在的状态。寄存器共有三种状态，他们的含义分别是：
+SB\_READY：就绪态，这个寄存器的最新结果就在寄存器中。
+SB\_BUSY：寄存器已经被重命名到ROB了，但是结果尚未就绪。
+SB\_ROB\_READY：此寄存器已经被重命名到ROB中了，结果就绪，但是此指令尚未retire，所以结果要从ROB中读取。
+
+ISU
+然后是ISU，即指令发射队列，译码后的指令进入发射队列中，当源操作就绪，并且后端执行单元空闲时，即可读取发射操作数，并发射到后端执行单元执行。
+
+
+后端执行单元：
+后端执行单元执行完指令后，将指令状态以及计算结果写入ROB中，并通过bypass network传递到ISU。
+
+ALU：计算算术逻辑指令
+MDU：计算乘除法指令
+PRU：处理cp0指令
+BRU: 处理分支跳转指令
+
+LSU: 处理load store指令
+LSU以及Load Store queue的设计
+LSU主要的工作是：
+进行译码，地址生成，以及地址转换（查TLB），将指令派发到Load Queue以及Store queue。如果这条指令是load，则派发到Load queue，如果是Store，则派发到store queue。load queue、store queue的释放都是在指令retire后进行的。
+
+ROB
+reorder buffer，存储指令计算的结果，以及指令的例如pc、异常等基本信息。ROB是一条有序队列，每个执行单元到ROB都有一个写口，另外ROB有两个读口，用于ISU从中读取数据，另外ROB还有一个commit口。
+
+WBU
+当ROB头部的指令就绪时，它就可以commit了。然后它就进入了WBU，写回单元。写回单元检查指令是否出了异常，并进行相应的处理。另外，对于non-speculative load/store，WBU将他们对应的项从Load store queue中唤醒，并执行。
+
+TLB
+我们实现了64项TLB，支持虚拟内存。TLB本质上是一个大的CAM查找表。
+
+L1 ICache、DCache
+L1 ICache负责处理来自IFU的请求，DCache处理来自load store queue的请求，L1 ICache与DCache均用block ram实现，均为两级流水，在cache hit时，能一直流水。在cache miss时，则阻塞。另外L1 DCache支持背靠背的load，store，连续的load、store，store、load之间的数据转发均可以处理。
+
+L2 cache
+我们实现了L2 cache，AXI4接口，blocking，一次只能只能处理一个请求。由于龙芯测试集working set很小，所以在性能测试中，我们没有使用这个L2 cache。
+
+\subsection{未重命名的指令以及寄存器}
+
+此外由于我们现在暂时没有对cp0寄存器以及Hi，Lo寄存器进行重命名，为了保持依赖，同时为了实现简便。现在在IDU阶段，cp0指令以及乘除法指令或者对上述寄存器的所有操作，都必须要等rob空了才会接着执行。IDU负责识别这些指令，并对前端进行必要的阻塞。
+
+\subsection{发射队列的实现}
+
+然后是ISU，即指令发射队列，译码后的指令进入发射队列中，发射队列中的每一项在进来的时候，都会记住自己的源寄存器的状态（在IDU阶段从scoreboard中读取），以及被重名到了ROB的哪一项。如果指令的源操作数的状态是SB\_READY或者SB\_ROB\_READY，则可以被直接发射，并不需要等待依赖满足。但是如果某一个操作数的状态是SB\_BUSY，则这条指令需要待在Issue queue中，等待唤醒。
+
+issue queue中的指令主要要满足的依赖有：
+源操作数就绪，执行单元空闲。
+
+\subsection{唤醒操作}
+我们从后端的每一个执行单元，以及WBU写回单元，都拉出一组线到issue queue，包含要结果就绪的寄存器下标、rob项下标以及算出来的值。我们将寄存器以及rob地址，与issue queue中的每一项进行比对，判断该条指令是否有源操作数就绪。这构成了wake up操作。另外，传递过来的算出来的新值，构成了bypass network。
+
+\subsection{发射}
+源数据就绪的指令，即可被发射，由于受发射宽度的限制（现在为1），我们用priority encoder选择一条指令出来发射。
+指令在发射时读取源操作数，源操作数来自于：寄存器，ROB或者bypass network。
+Speculative load、store。
+由于对mmio的load/store以及对memory的store是有副作用的，为了实现精确内存，这些load store是必须在指令retire时才能执行的。而对memory的load，是可以推测执行的。
+
+
+\subsection{精确内存，speculative load store}
+由于mmio load/store，memory store是有副作用的，仅memory load无副作用。所以load queue中对memory的load是可以推测执行的，而对load queue中对mmio的访问，以及store queue中的任务是在指令retire后执行的。
+
+
+\subsection{dynamic memory disambiguation以及维护memory RAW dependency}
+由于指令是乱序发射并且load是允许推测执行的，所以可能出现新的load在老的store之前被issue到lsq，被执行完成，造成依赖关系错误。由于我们将load queue以及store queue实现成了两条无序queue，无法单从queue的位置关系，判断load，store指令间的先后关系。
+同时，我们也没有实现store queue到load queue之间的bypass。
+所以我们是在store指令retire时，将其地址与load queue中的每一项进行匹配，如果有匹配上的，并且已经执行的load，则说明出现了dependency failure，然后通过冲刷流水线来解决。这样子做是可行的，因为store指令是在retire时执行，此时，我们可以保证load queue和store queue中的指令都比它年轻。
+
+\subsection{ICache、DCache一致性}
+我们实现了Cache指令，支持ICache、DCache一致性。
+
+\subsection{从I4到IO2I}
+我们在初赛时提交的版本是一个全顺序的流水线，In order fetch，in order issue, in order execute, in order retire，简称I4。
+在初赛后，我们对其进行了下面这些提升，将性能测试跑分提升到了52分：
+\begin{enumerate}
+
+\item 更低的乘除法器延迟
+\item 原有的实现中的cache line的valid，dirty均是用触发器实现，因为无法综合成BRAM，占据了大量的资源，影响了频率。在解决这个问题后，频率从70M提升到90M。
+\item 提升分支预测准确率：
+\begin{enumerate}
+	\item perf test中的绝大部分测试需要很短的history，小部分，如bubble sort、quick sort需要很长的history，因此我们使用了两个history长度不同的BHT，并取预测效果最好的作为分支预测结果。
+	
+	\item RAS speculative update。由于流水线较长（主要是由于中间instruction
+	queue的存在），而我们原来RAS压栈出栈都是在WBU阶段进行的，导致对于非常小的函数调用，call尚未commit，并将返回地址压入RAS，return就已经进了流水线了。我们支持了让RAS支持speculative update，在IDU阶段遇到call，return，就更新RAS。由于是speculative update，所以当出现分支预测错误时，RAS会进行部分恢复（恢复stack top指针）。添加了这个后，对于小函数调用多的stringsearch，提升明显，几乎所有的test的return预测错误，都降到了接近0%。
+\end{enumerate}
+
+\item DCache store、load bypass。对于stringsearch、stream copy等测试，存在明显的store，load背靠背的情况，我们处理了背靠背地址冲突的情况，加上了bypass。明显提升了这些项的分数。
+\end{enumerate}
+
+\subsection{IO2I：初步的乱序处理器}
+in order fetch，OoO issue，OoO execute，In order retire。
+此款处理器能够运行在70M，跑分33分左右。
+
+考虑到乱序的复杂性，为了保证正确性，尽早拿出一个能够运行的版本，我们在实现中做了如下取舍，这保证了实现的低复杂度与正确定，但是性能不太好，甚至不如I4版本处理器。
+
+
+1、显式重命名（重命名到物理寄存器）VS 隐式重命名（重命名到ROB）
+重命名主要要处理好：
+
+scoreboard：寄存器ready，busy状态
+物理寄存器资源分配
+
+对于scoreboard，这两种方案复杂性差不多。
+但是对于物理寄存器资源的分配，差别则很大。
+显式重命名需要实现active list，free list来维护物理寄存器的分配，在遇到分支时，需要做active list以及rename table进行check point，分支预测错误时需要进行回滚，复杂度更高。同时在异常时，需要walk back rob，复杂度太高。
+上述这些可能看起来还不是太复杂，但是要考虑到：在checkpoint以及恢复free list，scoreboard以及rename table时，这些资源的分配，回收在同时进行，corner case非常多，不容易写对。一不小心就容易出现：
+1、资源泄露，程序卡死（free list没有回收好）
+2、依赖处理错误，程序错误（scoreboard没有处理好）
+3、资源被重分配，程序错误（rename talbe没有处理好）
+
+而隐式重命名只需要维护ROB，flush直接flush rob即可，不需要复杂的checkpoint以及恢复操作。
+
+2、分支预测错误冲刷流水线的时机问题：
+由于ROB的存在，如果在retire时冲刷，会导致分支预测错代价太大了，分支预测错要尽早flush。按理说，对于重命名到ROB的实现，只要将branch后的指令全部从rob中刷掉就可以了，由于我们需要scoreboard来维护寄存器是否ready，所以scoreboard必须要做checkpoint，这就又是一个复杂的点。
+另外，由于我们要支持延迟槽指令，即使branch是放到了retire时冲刷，我们也不能直接对scoreboard进行reset，因为此时延迟槽指令还在流水线中。所以对于这种方案，我们也要对scoreboard进行checkpoint，并在flush时恢复。
+为了让实现简单正确，我们采取的是分支预测错的flush，要等到延迟槽指令retire时，才发出，这样子可以保证流水线中没有任何处理器，scoreboard也可以直接flush，而不必进行checkpoint。
+
+3、load store queue的实现
+对于load store queue，由于我们采取的是load queue，store queue都是无序queue的实现，load指令无法判断哪条store比它老，因此也就无法进行数据bypass。我们采取了更加简单的方式来保证RAW dependency，store时，如果发现了有比它新的load被执行了，那就flush流水线。
+
+4、简单实现的资源占用问题
+对于单发射的乱序处理器，理论上，wake port可以只有一个，ROB的读口应该可以控制到三个（两个用来读数据，一个用来commit），写口应该限制到一个。
+我们为了简单起见，所有的FU都是直接wake up issue queue，都直接将结果写入ROB，这导致了ROB的写口数量暴增，issue的CAM逻辑资源使用量也很大，进而限制了主频，以及issue queue与ROB的项数，进而限制了性能。
+
+5、对Hi，Lo没有重命名，乘除法指令等待ROB空了再发射，这严重影响了coremark等乘除法密集型应用的性能。
+
+
+
+如图\ref{fig:design_of_core}所示，图中列出了主要的core设计所涉及的模块，其中各个模块的含义大致描述如下：
+
+\begin{enumerate}
+\item IFU为取指单元，其通过握手信号向ICache发送取指信号，为了防止照成关键路径，ICache内部数据存储使用的是block ram，所以ICache在收到数据的下一周期才能返回数据，同时ICache的内部实现了流水化，所以迟一个周期返回数据几乎没有影响。
+
+\item IDU为译码单元，用于对IFU取得的指令进行译码，以取得这条指令的操作数寻找模式，操作数扩展方式，访问的寄存器编号，写回的寄存器编号，所需发往的执行单元编号。
+
+\item IQ为指令队列，用于存储所有已经译码成功的指令，为了防止后端执行周期过长阻塞前端。
+
+\item ISU为分发单元，通过译码所得的结果读取寄存器，同时在寄存器读写约束不满足的时候进行必要的等待，索引转发结果。
+
+\item ALU为算术运算单元，用于完成加法、减法、移位等可在一个周期内出结果的运算指令
+
+\item MDU为乘除法单元，用于完成乘法和除法的运算，这一模块主体执行功能放在了核外的IP核上，而MDU内部逻辑主要是等待乘除法器的执行结果。
+
+\item BRU为分支跳转单元，通过对ISU传入的操作数进行计算，以获取跳转目标，同时对于条件跳转指令还需要计算一下是否跳转
+
+\item LSU为访存单元，用于load store指令的执行，若dcache miss，还需要额外的周期等待访存结果
+
+\item PRU为特权指令单元，非特权指令不允许发送到这个单元，需要发送到这个单元的指令有MFC0、MTC0、SYSCALL、ERET，同时对于取指异常的指令和译码异常的指令，也需要发送到这个单元用以下拉异常信号
+
+\item CP0为0号协处理器，用于完成中断异常主要计算功能
+
+\item WBU为写回单元，用于将执行单元获取到的操作数写回到目标寄存器
+
+\item BHT、BTB、RAS为分支预测单元，由于延迟槽的存在，整体的分支预测请求由IDU发出，并用于重定位IFU，wbu在写回寄存器时，也需要将BRU的计算结果更新到分支预测单元
+\end{enumerate}
 
 \newpage
 
