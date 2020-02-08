@@ -703,7 +703,7 @@ system ila用来抓取AXI4的信号，相较于用\lstinline!(*mark_debug = "tru
   \item mul, mult, multu, div, divu, mfhi, mflo, mthi, mtlo
   \item 建议：hi和lo寄存器随通用寄存器一起进行转发，如果单独放在MDU里面，后续高级流水线的时候需要两套处理方案
   \end{itemize}
-\item PRU: 特权指令(该单元又名CP0)，重点看\href{run:../manuals/MIPS_Vol3.pdf}{[3]}
+\item PRU: 特权指令(该单元包括CP0和TLB)，重点看\href{run:../manuals/MIPS_Vol3.pdf}{[3]}
   \begin{itemize}
   \item syscall: 发起系统调用的指令
   \item eret: 系统调用执行完从内核态返回用户态的指令
@@ -817,6 +817,145 @@ system ila用来抓取AXI4的信号，相较于用\lstinline!(*mark_debug = "tru
   \item 调试的终极大招，可以在板上电路中采样信号
   \end{itemize}
 \end{itemize}
+
+\subsection{关于PRU的一些实现细节}
+
+PRU全称PRiviledged Unit，用来实现CP0和TLB。
+
+\subsubsection{必要的cache指令}
+
+mips不同于x86，ICache与DCache之间的一致性需要通过cache指令来维护。但是具体实现的时候无需把cache指令的所有功能都实现一遍，cache指令的某些操作码并没有被使用过。表\ref{tab:cache_inst}记录了linux和u-boot中所使用的cache指令。
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|c|c|c|c|c|}
+\hline
+cache指令 & 操作码 & 作用的cache & 使用范围 & 具体功能 \\\hline
+\hline
+\lstinline!cache 0x00, [addr]! & \lstinline!5b000'00! & 指令cache & linux & \\\hline
+\lstinline!cache 0x08, [addr]! & \lstinline!5b010'00! & 指令cache & linux & \\\hline
+\lstinline!cache 0x10, [addr]! & \lstinline!5b100'00! & 指令cache & linux+u-boot & \\\hline
+\lstinline!cache 0x14, [addr]! & \lstinline!5b101'00! & 指令cache & linux & \\\hline
+\hline
+\lstinline!cache 0x01, [addr]! & \lstinline!5b000'01! & 数据cache & linux & \\\hline
+\lstinline!cache 0x09, [addr]! & \lstinline!5b010'01! & 数据cache & linux & \\\hline
+\lstinline!cache 0x15, [addr]! & \lstinline!5b101'01! & 数据cache & linux+u-boot & \\\hline
+\hline
+\lstinline!cache 0x03, [addr]! & \lstinline!5b000'11! & L2 cache & linux & \\\hline
+\lstinline!cache 0x07, [addr]! & \lstinline!5b001'11! & L2 cache & linux & \\\hline
+\lstinline!cache 0x13, [addr]! & \lstinline!5b100'11! & L2 cache & linux & \\\hline
+\lstinline!cache 0x17, [addr]! & \lstinline!5b101'11! & L2 cache & linux & \\\hline
+\lstinline!cache 0x0b, [addr]! & \lstinline!5b010'11! & L2 cache & linux & \\\hline
+\end{tabular}
+\caption{常用cache指令}
+\label{tab:cache_inst}
+\end{table}
+
+\subsubsection{异常实现的注意点}
+
+关于异常，最需要注意的一点是它和异常码不是一一对应的，异常跳转入口可以视为是由异常和异常码共同决定的：
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|c|c|}
+\hline
+异常 & 会产生的异常码 \\\hline
+TLB Refill Exception & TLBL, TLBS \\\hline
+TLB Invalid Exception & TLBL, TLBS \\\hline
+TLB Modified Exception & TLBMod \\\hline
+\end{tabular}
+\caption{需要注意的异常和异常码}
+\end{table}
+
+下述为处理异常发生时如何跳转的代码，原版在nemu-mips32/src/cpu/cpu.c中：
+\begin{lstlisting}[language=c]
+void launch_exception(int exception, int excode) {
+  // 注意，异常和异常码不是一一对应的
+  uint32_t vecOff = 0;
+  if (cpu.cp0.status.EXL == 0) {
+    if (cpu.last_instr_in_delayslot) {
+      cpu.cp0.epc = cpu.pc - 4; // 跳转指令的地址
+      cpu.cp0.cause.BD = 1;
+    } else {
+      cpu.cp0.epc = cpu.pc;     // 最后执行的指令的地址
+      cpu.cp0.cause.BD = 0;
+    }
+
+    // 这里计算异常入口地址的偏移量
+    if (exception == EX_TLB_REFILL)
+      vecOff = 0x000;
+    else if (excode == EXC_INTR && cpu.cp0.cause.IV == 1)
+      vecOff = 0x200;
+    else
+      vecOff = 0x180;
+  } else {
+    // 注意这里不设置epc
+    vecOff = 0x180;
+  }
+
+  cpu.cp0.cause.ExcCode = code;
+  cpu.cp0.status.EXL = 1;
+  // 注意这里，异常跳转地址的计算方式是[基址+偏移量]
+  if (cpu.cp0.status.BEV == 1) {
+    cpu.br_target = 0xbfc00200 + vecOff;
+  } else {
+    cpu.br_target = 0x80000000 + vecOff;
+  }
+}
+\end{lstlisting}
+
+\subsubsection{tlb实现细节}
+
+关于查询tlb的过程中如何发起异常，可以参见nemu-mips32/src/cpu/mmu.c，下述代码对原版做了简化。
+
+\begin{lstlisting}[language=c]
+void tlb_exception(int ex, int code, vaddr_t vaddr, unsigned asid) {
+  cpu.cp0.badvaddr = vaddr;
+  cpu.cp0.context.BadVPN2 = vaddr >> 13;
+  cpu.cp0.entry_hi.vpn = vaddr >> 13;
+  cpu.cp0.entry_hi.asid = asid;
+  launch_exception(ex, code);
+}
+
+vaddr_t page_translate(vaddr_t vaddr, int rwbit) {
+  uint32_t excode = rwbit == MMU_LOAD ? EXC_TLBL : EXC_TLBS;
+  uint32_t va_31_13 = (vaddr & ~0x1FFF) >> 13;
+  for (int i = 0; i < NR_TLB_ENTRY; i++) {
+    uint32_t mask = tlb[i].pagemask;
+    assert(mask == 0 || (mask | (mask + 1)) == 0);
+    bool match = (tlb[i].vpn & ~mask) == (va_31_13 & ~mask) &&
+                 (tlb[i].g || tlb[i].asid == cpu.cp0.entry_hi.asid);
+    if (!match) continue;
+
+    bool EvenOddBit = vaddr & ((mask + 1) << 12);
+    /* match the vpn and asid */
+    tlb_phyn_t *phyn = EvenOddBit ? &(tlb[i].p1) : &(tlb[i].p0);
+    if (phyn->v == 0) {
+      tlb_exception(EX_TLB_INVALID, excode, vaddr, tlb[i].asid);
+      return -1u;
+    } else if (phyn->d == 0 && rwbit == MMU_STORE) {
+      tlb_exception(EX_TLB_MODIFIED, EXC_TLBM, vaddr, tlb[i].asid);
+      return -1u;
+    } else {
+      // # pfn_PABITS-1-12..0 corresponds to pa_PABITS-1..12
+      //
+      // pa ← pfn_PABITS-1-12..EvenOddBit-12 || va_EvenOddBit-1..0
+      // case TLB[i].Mask
+      //  2#0000000000000000: EvenOddBit ← 12
+      //  2#0000000000000011: EvenOddBit ← 14
+      //  2#0000000000001111: EvenOddBit ← 16
+      // endcase
+
+      uint32_t highbits = (phyn->pfn & ~mask) << 12;
+      uint32_t lowbits = vaddr & (((mask + 1) << 12) - 1);
+      return highbits | lowbits;
+    }
+  }
+
+  tlb_exception(EX_TLB_REFILL, excode, vaddr, cpu.cp0.entry_hi.asid);
+  return -1u;
+}
+\end{lstlisting}
 
 \subsection{外设地址段}
 
@@ -1294,40 +1433,43 @@ L1 ICache负责处理来自IFU的请求，DCache处理来自load store queue的�
 L2 cache
 我们实现了L2 cache，AXI4接口，blocking，一次只能只能处理一个请求。由于龙芯测试集working set很小，所以在性能测试中，我们没有使用这个L2 cache。
 
-\subsection{未重命名的指令以及寄存器}
+\subsection{实现细节}
+
+\subsubsection{未重命名的指令以及寄存器}
 
 此外由于我们现在暂时没有对cp0寄存器以及Hi，Lo寄存器进行重命名，为了保持依赖，同时为了实现简便。现在在IDU阶段，cp0指令以及乘除法指令或者对上述寄存器的所有操作，都必须要等rob空了才会接着执行。IDU负责识别这些指令，并对前端进行必要的阻塞。
 
-\subsection{发射队列的实现}
+\subsubsection{发射队列的实现}
 
 然后是ISU，即指令发射队列，译码后的指令进入发射队列中，发射队列中的每一项在进来的时候，都会记住自己的源寄存器的状态（在IDU阶段从scoreboard中读取），以及被重名到了ROB的哪一项。如果指令的源操作数的状态是SB\_READY或者SB\_ROB\_READY，则可以被直接发射，并不需要等待依赖满足。但是如果某一个操作数的状态是SB\_BUSY，则这条指令需要待在Issue queue中，等待唤醒。
 
 issue queue中的指令主要要满足的依赖有：
 源操作数就绪，执行单元空闲。
 
-\subsection{唤醒操作}
+\subsubsection{唤醒操作}
 我们从后端的每一个执行单元，以及WBU写回单元，都拉出一组线到issue queue，包含要结果就绪的寄存器下标、rob项下标以及算出来的值。我们将寄存器以及rob地址，与issue queue中的每一项进行比对，判断该条指令是否有源操作数就绪。这构成了wake up操作。另外，传递过来的算出来的新值，构成了bypass network。
 
-\subsection{发射}
+\subsubsection{发射}
 源数据就绪的指令，即可被发射，由于受发射宽度的限制（现在为1），我们用priority encoder选择一条指令出来发射。
 指令在发射时读取源操作数，源操作数来自于：寄存器，ROB或者bypass network。
 Speculative load、store。
 由于对mmio的load/store以及对memory的store是有副作用的，为了实现精确内存，这些load store是必须在指令retire时才能执行的。而对memory的load，是可以推测执行的。
 
 
-\subsection{精确内存，speculative load store}
+\subsubsection{精确内存，speculative load store}
 由于mmio load/store，memory store是有副作用的，仅memory load无副作用。所以load queue中对memory的load是可以推测执行的，而对load queue中对mmio的访问，以及store queue中的任务是在指令retire后执行的。
 
 
-\subsection{dynamic memory disambiguation以及维护memory RAW dependency}
+\subsubsection{dynamic memory disambiguation以及维护memory RAW dependency}
 由于指令是乱序发射并且load是允许推测执行的，所以可能出现新的load在老的store之前被issue到lsq，被执行完成，造成依赖关系错误。由于我们将load queue以及store queue实现成了两条无序queue，无法单从queue的位置关系，判断load，store指令间的先后关系。
 同时，我们也没有实现store queue到load queue之间的bypass。
 所以我们是在store指令retire时，将其地址与load queue中的每一项进行匹配，如果有匹配上的，并且已经执行的load，则说明出现了dependency failure，然后通过冲刷流水线来解决。这样子做是可行的，因为store指令是在retire时执行，此时，我们可以保证load queue和store queue中的指令都比它年轻。
 
-\subsection{ICache、DCache一致性}
+\subsubsection{ICache、DCache一致性}
 我们实现了Cache指令，支持ICache、DCache一致性。
 
-\subsection{从I4到IO2I}
+\subsection{乱序处理器}
+\subsubsection{从I4到IO2I}
 我们在初赛时提交的版本是一个全顺序的流水线，In order fetch，in order issue, in order execute, in order retire，简称I4。
 在初赛后，我们对其进行了下面这些提升，将性能测试跑分提升到了52分：
 \begin{enumerate}
@@ -1345,7 +1487,8 @@ Speculative load、store。
 \item DCache store、load bypass。对于stringsearch、stream copy等测试，存在明显的store，load背靠背的情况，我们处理了背靠背地址冲突的情况，加上了bypass。明显提升了这些项的分数。
 \end{enumerate}
 
-\subsection{IO2I：初步的乱序处理器}
+
+\subsubsection{IO2I：初步的乱序处理器}
 in order fetch，OoO issue，OoO execute，In order retire。
 此款处理器能够运行在70M，跑分33分左右。
 
