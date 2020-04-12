@@ -657,6 +657,82 @@ system ila用来抓取AXI4的信号，相较于用\lstinline!(*mark_debug = "tru
 
 后续流程后前面一样，综合上板，然后便会自动进入抓信号的界面。
 
+\section{minilab讲义}
+minilab的目的旨在让你能够快速掌握大实验所需的各种工具链，整体还是服务于大实验的。
+
+\subsection{Kconfig}
+
+开始实验前请先下载代码：\lstinline!git clone git@github.com:nju-mips/minilab!，clone下来之后你的文件结构是如下这样：
+\begin{lstlisting}
+minilab
++-- kconfig
++-- M1
+\end{lstlisting}
+
+其中kconfig是linux内核所使用的自动化配置工具，也是这个小实验的重心，不过你并没有必要去研究它的源代码，我们所需要做的是学会去使用它。
+
+下载下来源码之后，进入M1目录，尝试make一下，你会得到如下输出：
+\begin{lstlisting}
+../kconfig/conf ./Kconfig
+*
+* This is a simple Kconfig for lab1
+*
+Algorithm selection
+> 1. bubble sort (BUBBLE_SORT) (NEW)
+  2. selection sort (SELECTION_SORT) (NEW)
+choice[1-2?]:
+use printer to print the array (USE_PRINTER) [N/y/?] (NEW)
+#
+# configuration written to .config
+#
+../kconfig/conf --syncconfig ./Kconfig
+make: *** No rule to make target 'build/main.o', needed by 'build/M1'.  Stop.
+\end{lstlisting}
+
+重点是最后一行，\lstinline!No rule to make target 'build/main.o'!，你需要做的第一件事便是打开M1/Makefile.compile，并在里面添加.o文件的规则。为求方便的你可能会将Makefile.compile修改成：
+\begin{lstlisting}
+build/main.o: src/main.c
+  mkdir -p build
+  $(CC) -c $(CFLAGS) src/main.c -o build/main.o
+\end{lstlisting}
+但是这样一来假设项目中有几十个.c文件你便需要写上几十条这样的规则，这种做法是低效且易错的。所幸为了消除这种重复性，Makefile提供了\lstinline!%!语法，它出现在规则中有通配符的含义，你可以用它来只写出一条规则便能自动编译所有的.c。
+
+等你搞定了每个.o的编译规则之后，再次键入\lstinline!make!，你会得到如下的输出：
+\begin{lstlisting}
+/tmp/ccJtMIec.o: In function `main':
+main.c:(.text.startup+0x7): undefined reference to `algo'
+main.c:(.text.startup+0x2c): undefined reference to `algo'
+main.c:(.text.startup+0x33): undefined reference to `printer'
+main.c:(.text.startup+0x58): undefined reference to `printer'
+collect2: error: ld returned 1 exit status
+Makefile.compile:3: recipe for target 'build/main.o' failed
+make: *** [build/main.o] Error 1
+\end{lstlisting}
+
+这个错误的含义很明显，链接的时候找不到\lstinline!algo!这个符号，但当你打开bubble\_sort.c的时候，你却能发现\lstinline!algo!赫然躺在文件的末尾。这是为什么，明明定义了这个符号，却还是无法链接？
+
+为了回答这个问题，我们需要引入条件编译这个概念。不过不是指\lstinline!#if xx!这种源代码级别的条件编译，这里的条件编译是指在项目构建的时候，自动根据配置文件来决定需要编译链接哪些文件，这在linux/u-boot/coreutils/busybox中均是常用的技巧。在这里也是类似的，你需要阅读Makefile和src/*.c，并在Makefile中添加适当的代码来让项目可以编译(注意到这里为止不可以修改src目录下的文件)。同时为这个实验我们也设计了相应的测试脚本testall.sh，如果你正确的实现了条件编译，则应该可以通过前六个测试，如下所示：
+\begin{lstlisting}
+PASS bubble-sort
+PASS selection-sort
+PASS bubble-sort normal-printer
+PASS selection-sort normal-printer
+PASS bubble-sort reverse-printer
+PASS selection-sort reverse-printer
+FAIL reverse-sort normal-printer
+FAIL reverse_sort_defconfig
+\end{lstlisting}
+
+在搞定了基本的编译之后，你可以尝试执行一下\lstinline!make menuconfig!，并在这之后观察一下M1目录下有什么变化，M1/include下面又有什么变化，这些变化会对这个项目产生什么影响？如果不进行\lstinline!make menuconfig!直接编译，整个项目会发生什么？你可以尝试修改一下Kconfig文件，然后再\lstinline!make menuconfig!，看看有哪些变化。
+
+经历了上述过程，你可能已经理解最后两个测试是要干什么的了。虽然如此，我们还是需要按部就班一下。我们先来讲解一下src和include下的几个源码文件干了一件什么事。在common.h头文件中定义了\lstinline!struct algo!和\lstinline!struct printer!，前者是给一个数组排序，后者是打印一个数组。在main.c里面会声明一个algo，然后用它来进行排序。在bubble\_sort.c和selection\_sort.c里面各自都定义了\lstinline!algo!这个变量，显然如果同时链接这两个文件是会链接失败的。
+
+第七个测试需要你自行添加一个新的排序算法\lstinline!reverse-sort!，它的功能是将输入按从大到小排好序。同时你需要修改Kconfig，添加相应的选项\lstinline!REVERSE_SORT!，并在Makefile里面添加相应的条件编译规则，使得你的修改能够通过第七个测试。
+
+如果你接触过内核的编译，可能会用过\lstinline!make xxx_defconfig!这样的功能。初见时可能感到惊奇，但仔细想一下你可能就知道这个功能是怎么实现的了。第八个测试也是为了测这个功能，具体来说你需要添加一个\lstinline!%_defconfig!的伪目标，这个伪目标会在被执行时去configs目录下将相应的配置文件覆盖到项目当前的配置文件上去。当然配置文件需要你自己准备，具体准备什么样的配置文件可以通过测试你可以通过阅读测试脚本来获得。
+
+\subsection{dts和配置运行linux}
+
 \section{MIPS相关}
 
 \subsection{nju-mips简介}
@@ -1336,6 +1412,10 @@ CPUAssert message: bad addr bfe80060
 \end{lstlisting}
 \textcolor{red}{这种时候请检查bad addr对应的外设，并予以开启。除此以外还需要额外注意的一点是，emaclite的模拟需要与tun/tap进行交互，为此root权限是必须的，因此如果要开启nemu的虚拟网卡，运行的时候需要加上sudo。}
 
+\section{woop设计}
+
+
+
 \section{往届core设计(2017)}
 
 详细内容可以查看\href{run:../manuals/2017-I4-NOOP.pdf}{原文档}。
@@ -1554,6 +1634,14 @@ scoreboard：寄存器ready，busy状态
 
 \item BHT、BTB、RAS为分支预测单元，由于延迟槽的存在，整体的分支预测请求由IDU发出，并用于重定位IFU，wbu在写回寄存器时，也需要将BRU的计算结果更新到分支预测单元
 \end{enumerate}
+
+\section{往届core设计(woop)}
+
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[]{image/woop}\\
+	\caption{CPU的核内设计}\label{fig:design_of_woop_core}
+\end{figure}
 
 \newpage
 
