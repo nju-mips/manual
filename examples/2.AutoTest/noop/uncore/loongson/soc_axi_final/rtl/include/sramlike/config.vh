@@ -1,1 +1,0 @@
-`define SRAMLIKE_IF
