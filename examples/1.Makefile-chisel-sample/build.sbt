@@ -1,76 +1,54 @@
-name := "npc"
-version := "1.0.0"
+def scalacOptionsVersion(scalaVersion: String): Seq[String] = {
+  Seq() ++ {
+    // If we're building with Scala > 2.11, enable the compile option
+    //  switch to support our anonymous Bundle definitions:
+    //  https://github.com/scala/bug/issues/10047
+    CrossVersion.partialVersion(scalaVersion) match {
+      case Some((2, scalaMajor: Long)) if scalaMajor < 12 => Seq()
+      case _ => Seq("-Xsource:2.11")
+    }
+  }
+}
 
-val sourceDir = "src/";
-scalacOptions ++= Seq("-Xsource:2.11", "-unchecked", "-deprecation")
-scalaSource in Compile := (baseDirectory(_/sourceDir)).value
+def javacOptionsVersion(scalaVersion: String): Seq[String] = {
+  Seq() ++ {
+    // Scala 2.12 requires Java 8. We continue to generate
+    //  Java 7 compatible code for Scala 2.11
+    //  for compatibility with old clients.
+    CrossVersion.partialVersion(scalaVersion) match {
+      case Some((2, scalaMajor: Long)) if scalaMajor < 12 =>
+        Seq("-source", "1.7", "-target", "1.7")
+      case _ =>
+        Seq("-source", "1.8", "-target", "1.8")
+    }
+  }
+}
+
+name := "njumips"
+
+version := "3.3.0"
+
+scalaVersion := "2.12.10"
+
+crossScalaVersions := Seq("2.12.10", "2.11.12")
 
 resolvers ++= Seq(
-	Resolver.sonatypeRepo("snapshots"),
-	Resolver.sonatypeRepo("releases")
+  Resolver.sonatypeRepo("snapshots"),
+  Resolver.sonatypeRepo("releases")
 )
 
+val sourceDir = "core/";
+scalaSource in Compile := (baseDirectory(_/sourceDir)).value
+
+// Provide a managed dependency on X if -DXVersion="" is supplied on the command line.
 val defaultVersions = Map(
-  "chisel3" -> "3.1.1",
-  "chisel-iotesters" -> "1.1.+"
+  "chisel3" -> "3.2.+",
+  "chisel-iotesters" -> "1.3.+"
   )
 
-libraryDependencies ++= (Seq("chisel3","chisel-iotesters").map {
-  dep: String => "edu.berkeley.cs" %% dep % sys.props.getOrElse(dep + "Version", defaultVersions(dep)) })
+libraryDependencies ++= Seq("chisel3","chisel-iotesters").map {
+  dep: String => "edu.berkeley.cs" %% dep % sys.props.getOrElse(dep + "Version", defaultVersions(dep)) }
 
-import sys.process._
-import java.io.{File}
-import java.nio.file._
+scalacOptions ++= scalacOptionsVersion(scalaVersion.value)
 
-val objDir = "output/"
-val vFileName = objDir + "Top.v";
-
-def getListOfFiles(dir: String):List[File] = {
-    val d = new File(dir)
-    if (d.exists && d.isDirectory) {
-        d.listFiles.filter(_.isFile).toList
-    } else {
-        List[File]()
-    }
-}
-
-def getFileTimeInMillis(file:File):Long = {
-	val path = Paths.get(file.getPath());
-	return Files.getLastModifiedTime(path).toMillis;
-}
-
-def getLatestFileTime(files:List[File]):Long = {
-	val sortedFiles = files.sortWith(getFileTimeInMillis(_) > getFileTimeInMillis(_));
-	if(sortedFiles.length > 0)
-		return getFileTimeInMillis(sortedFiles(0));
-	return 0;
-}
-
-def needGenerateVFile(args:Seq[String]):Boolean = {
-	if(args.length == 1 && args(0) == "clean")
-		return false;
-	val files = getListOfFiles(sourceDir);
-	val latestTime = getLatestFileTime(files);
-	val vFile = new File(vFileName);
-	if(!vFile.exists) return true;
-	if(getFileTimeInMillis(vFile) <= latestTime)
-		return true;
-	return false;
-}
-
-def makeProject = Command.args("make", "<args>") {
-	(state, args) => {
-		val exec = Exec("run SimTop -td " + objDir + " --output-file " + vFileName, None);
-		val makeCommand = ("make " + args.mkString(" "));
-		if(needGenerateVFile(args)) {
-			val newState = MainLoop.processCommand(exec, state);
-			("mkdir -p " + objDir)!;
-			("touch " + vFileName)!;
-			makeCommand!; newState;
-		} else {
-			makeCommand!; state;
-		}
-	}
-}
-
-commands += makeProject
+javacOptions ++= javacOptionsVersion(scalaVersion.value)

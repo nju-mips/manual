@@ -26,6 +26,12 @@ $(foreach app,$(MIPS_TESTS),$(eval $(call test_template,$(MIPS_TEST_HOME)/$(app)
 # nanos
 # $(eval $(call test_template,$(NANOS_HOME),nanos,))
 
+# linux
+$(eval $(call test_template,$(LINUX_HOME),linux,,,vmlinux,!))
+
+# u-boot
+$(eval $(call test_template,$(U_BOOT_HOME),u-boot,,,u-boot,!))
+
 # cputests
 $(foreach c,$(CPUTESTS),$(eval $(call test_template,$(AM_HOME)/tests/cputest,$(c),$(OBJ_DIR)/cputests/$(c),ALL=$(c))))
 
